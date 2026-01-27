@@ -70,7 +70,13 @@ async function ensureTable() {
       blacklist_flag BOOLEAN NOT NULL DEFAULT FALSE,
       blacklist_reason TEXT,
       approval_channel_id TEXT,
-      approval_message_id TEXT
+      approval_message_id TEXT,
+      first_race TEXT,
+      first_farm TEXT,
+      first_dismantle TEXT,
+      kit_delivered BOOLEAN NOT NULL DEFAULT FALSE,
+      kit_delivered_by TEXT,
+      kit_delivered_at TIMESTAMPTZ
     );
   `);
 }
@@ -95,6 +101,12 @@ function normalizeRow(row) {
     blacklistReason: row.blacklist_reason,
     approvalChannelId: row.approval_channel_id,
     approvalMessageId: row.approval_message_id,
+    firstRace: row.first_race,
+    firstFarm: row.first_farm,
+    firstDismantle: row.first_dismantle,
+    kitDelivered: row.kit_delivered,
+    kitDeliveredBy: row.kit_delivered_by,
+    kitDeliveredAt: row.kit_delivered_at,
   };
 }
 
@@ -193,7 +205,7 @@ async function addRecruit({
   };
 }
 
-async function updateRecruitStatus(id, { status, approvedBy, rejectedBy, rejectReason }) {
+async function updateRecruitStatus(id, { status, approvedBy, rejectedBy, rejectReason, firstRace, firstFarm, firstDismantle }) {
   if (!useDb || !pool) {
     const all = readFileSafe();
     const idx = all.findIndex((r) => r.id === id);
@@ -204,6 +216,9 @@ async function updateRecruitStatus(id, { status, approvedBy, rejectedBy, rejectR
       all[idx].status = 'approved';
       all[idx].approvedBy = approvedBy;
       all[idx].approvedAt = now;
+      all[idx].firstRace = firstRace || null;
+      all[idx].firstFarm = firstFarm || null;
+      all[idx].firstDismantle = firstDismantle || null;
     } else if (status === 'rejected') {
       all[idx].status = 'rejected';
       all[idx].rejectedBy = rejectedBy;
@@ -222,10 +237,13 @@ async function updateRecruitStatus(id, { status, approvedBy, rejectedBy, rejectR
         UPDATE recruits
         SET status = 'approved',
             approved_by = $2,
-            approved_at = $3
+            approved_at = $3,
+            first_race = $4,
+            first_farm = $5,
+            first_dismantle = $6
         WHERE id = $1
       `,
-      [id, approvedBy, now],
+      [id, approvedBy, now, firstRace || null, firstFarm || null, firstDismantle || null],
     );
   } else if (status === 'rejected') {
     await pool.query(
@@ -240,6 +258,36 @@ async function updateRecruitStatus(id, { status, approvedBy, rejectedBy, rejectR
       [id, rejectedBy, now, rejectReason || null],
     );
   }
+
+  const { rows } = await pool.query('SELECT * FROM recruits WHERE id = $1', [id]);
+  return rows[0] ? normalizeRow(rows[0]) : null;
+}
+
+async function markKitDelivered(id, deliveredBy) {
+  if (!useDb || !pool) {
+    const all = readFileSafe();
+    const idx = all.findIndex((r) => r.id === id);
+    if (idx === -1) return null;
+
+    all[idx].kitDelivered = true;
+    all[idx].kitDeliveredBy = deliveredBy;
+    all[idx].kitDeliveredAt = new Date().toISOString();
+    writeFileSafe(all);
+    return all[idx];
+  }
+
+  await ensureTable();
+  const now = new Date().toISOString();
+  await pool.query(
+    `
+      UPDATE recruits
+      SET kit_delivered = TRUE,
+          kit_delivered_by = $2,
+          kit_delivered_at = $3
+      WHERE id = $1
+    `,
+    [id, deliveredBy, now],
+  );
 
   const { rows } = await pool.query('SELECT * FROM recruits WHERE id = $1', [id]);
   return rows[0] ? normalizeRow(rows[0]) : null;
@@ -289,5 +337,6 @@ module.exports = {
   updateRecruitStatus,
   getRecruitById,
   getRecruitRanking,
+  markKitDelivered,
 };
 

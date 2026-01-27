@@ -24,6 +24,7 @@ const {
   updateRecruitStatus,
   getRecruitById,
   getRecruitRanking,
+  markKitDelivered,
 } = require('./recruitStore');
 
 const client = new Client({
@@ -317,15 +318,12 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         const embed = new EmbedBuilder()
-          .setTitle('📋 Painel de Recrutamento - Duas Luas')
+          .setTitle('Recrutamento Duas Luas 🌙')
           .setDescription(
-            'Clique no botão abaixo para **solicitar set** no Duas Luas.\n\n' +
-              'Você deverá informar:\n' +
-              '- Quem foi o seu **recrutador**;\n' +
-              '- Seu **nome e sobrenome** in-game;\n' +
-              '- Seu **telefone in-game** (não use número real);\n' +
-              '- Seu **passaporte in-game** (veja no F11).',
+            'Esse é o seu primeiro passo para fazer parte da família Duas Luas!\n\n' +
+              'Clique no botão abaixo para solicitar o seu set de membro e preencher o formulário.',
           )
+          .setImage('https://media.discordapp.net/attachments/1277186639969517642/1443073749015466004/file.jpg')
           .setColor(0x3498db);
 
         const row = new ActionRowBuilder().addComponents(
@@ -531,6 +529,83 @@ client.on('interactionCreate', async (interaction) => {
         modal.addComponents(row);
 
         await interaction.showModal(modal);
+      } else if (customId.startsWith('kit_delivered:')) {
+        const recruitId = customId.split(':')[1];
+        const member = interaction.member;
+
+        if (!memberHasRecruitManagerRole(member)) {
+          return interaction.reply({
+            content: 'Você não tem permissão para marcar kit como entregue.',
+            ephemeral: true,
+          });
+        }
+
+        const recruit = await getRecruitById(recruitId);
+        if (!recruit) {
+          return interaction.reply({
+            content: 'Recrutamento não encontrado.',
+            ephemeral: true,
+          });
+        }
+
+        if (recruit.status !== 'approved') {
+          return interaction.reply({
+            content: 'Apenas recrutamentos aprovados podem ter o kit marcado como entregue.',
+            ephemeral: true,
+          });
+        }
+
+        if (recruit.kitDelivered) {
+          return interaction.reply({
+            content: 'O kit inicial já foi marcado como entregue.',
+            ephemeral: true,
+          });
+        }
+
+        const updated = await markKitDelivered(recruitId, interaction.user.id);
+
+        // Atualiza mensagem de aprovação
+        try {
+          const channel = await interaction.client.channels.fetch(updated.approvalChannelId);
+          if (channel && channel.isTextBased()) {
+            const msg = await channel.messages.fetch(updated.approvalMessageId).catch(() => null);
+            if (msg) {
+              const originalEmbed = msg.embeds[0];
+              const now = new Date();
+              const embed = EmbedBuilder.from(originalEmbed).addFields({
+                name: 'Kit inicial entregue',
+                value: `<@${interaction.user.id}> em ${formatDateBr(now)}`,
+              });
+
+              const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                  .setCustomId(`approve_recruit:${recruitId}`)
+                  .setLabel('Aprovado')
+                  .setStyle(ButtonStyle.Success)
+                  .setDisabled(true),
+                new ButtonBuilder()
+                  .setCustomId(`reject_recruit:${recruitId}`)
+                  .setLabel('Reprovado')
+                  .setStyle(ButtonStyle.Secondary)
+                  .setDisabled(true),
+                new ButtonBuilder()
+                  .setCustomId(`kit_delivered:${recruitId}`)
+                  .setLabel('Kit inicial entregue')
+                  .setStyle(ButtonStyle.Success)
+                  .setDisabled(true),
+              );
+
+              await msg.edit({ embeds: [embed], components: [row] });
+            }
+          }
+        } catch (err) {
+          console.error('Erro ao atualizar mensagem de kit entregue:', err);
+        }
+
+        await interaction.reply({
+          content: 'Kit inicial marcado como entregue.',
+          ephemeral: true,
+        });
       }
     }
 
@@ -754,6 +829,9 @@ client.on('interactionCreate', async (interaction) => {
         const updated = await updateRecruitStatus(recruitId, {
           status: 'approved',
           approvedBy: interaction.user.id,
+          firstRace: primeiraCorrida,
+          firstFarm: primeiroFarm,
+          firstDismantle: primeiroDesmanche,
         });
 
         // Atualiza cargos do membro (remove olheiro, adiciona membro)
@@ -764,12 +842,25 @@ client.on('interactionCreate', async (interaction) => {
             const olheiroRoleId = process.env.ROLE_OLHEIRO_ID;
             const membroRoleId = process.env.ROLE_MEMBRO_ID;
 
-            if (olheiroRoleId && guildMember.roles.cache.has(olheiroRoleId)) {
-              await guildMember.roles.remove(olheiroRoleId).catch(() => {});
+            // Remove cargo de olheiro (se tiver)
+            if (olheiroRoleId) {
+              if (guildMember.roles.cache.has(olheiroRoleId)) {
+                await guildMember.roles.remove(olheiroRoleId);
+                console.log(`Cargo de olheiro removido de ${guildMember.user.tag}`);
+              }
             }
+
+            // Adiciona cargo de membro
             if (membroRoleId) {
-              await guildMember.roles.add(membroRoleId).catch(() => {});
+              if (!guildMember.roles.cache.has(membroRoleId)) {
+                await guildMember.roles.add(membroRoleId);
+                console.log(`Cargo de membro adicionado para ${guildMember.user.tag}`);
+              }
+            } else {
+              console.warn('ROLE_MEMBRO_ID não configurado no .env');
             }
+          } else {
+            console.warn(`Membro ${recruit.candidateId} não encontrado no servidor`);
           }
         } catch (err) {
           console.error('Erro ao atualizar cargos do membro aprovado:', err);
@@ -809,14 +900,10 @@ client.on('interactionCreate', async (interaction) => {
                     value: primeiroDesmanche,
                     inline: true,
                   },
-                  {
-                    name: 'Kit inicial',
-                    value: '✅ Entregue o kit inicial para o membro.',
-                  },
                 )
                 .setTimestamp(now);
 
-              const disabledRow = new ActionRowBuilder().addComponents(
+              const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
                   .setCustomId(`approve_recruit:${recruitId}`)
                   .setLabel('Aprovado')
@@ -827,9 +914,13 @@ client.on('interactionCreate', async (interaction) => {
                   .setLabel('Reprovado')
                   .setStyle(ButtonStyle.Secondary)
                   .setDisabled(true),
+                new ButtonBuilder()
+                  .setCustomId(`kit_delivered:${recruitId}`)
+                  .setLabel('Kit inicial entregue')
+                  .setStyle(ButtonStyle.Primary),
               );
 
-              await msg.edit({ embeds: [embed], components: [disabledRow] });
+              await msg.edit({ embeds: [embed], components: [row] });
             }
           }
         } catch (err) {
