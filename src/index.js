@@ -11,6 +11,7 @@ const {
   TextInputBuilder,
   TextInputStyle,
   UserSelectMenuBuilder,
+  MessageFlags,
 } = require('discord.js');
 const {
   addBlacklistEntry,
@@ -215,6 +216,56 @@ client.once('ready', async () => {
         description: 'Mostra o ranking de recrutamento dos membros.',
         dm_permission: false,
       },
+      {
+        name: 'adicionar_recrutamento',
+        description: 'Adiciona um recrutamento manualmente (apenas para cargos autorizados).',
+        dm_permission: false,
+        options: [
+          {
+            type: 6, // USER
+            name: 'recrutador',
+            description: 'Quem foi o recrutador.',
+            required: true,
+          },
+          {
+            type: 6, // USER
+            name: 'candidato',
+            description: 'O candidato recrutado.',
+            required: true,
+          },
+          {
+            type: 3, // STRING
+            name: 'nome',
+            description: 'Nome completo do candidato (Nome Sobrenome).',
+            required: true,
+          },
+          {
+            type: 3, // STRING
+            name: 'telefone',
+            description: 'Telefone in-game do candidato.',
+            required: true,
+          },
+          {
+            type: 3, // STRING
+            name: 'passaporte',
+            description: 'Passaporte in-game do candidato.',
+            required: true,
+          },
+        ],
+      },
+      {
+        name: 'remover_recrutamento',
+        description: 'Remove um recrutamento manualmente (apenas para cargos autorizados).',
+        dm_permission: false,
+        options: [
+          {
+            type: 3, // STRING
+            name: 'id',
+            description: 'ID do recrutamento a ser removido.',
+            required: true,
+          },
+        ],
+      },
     ]);
     console.log('Slash commands registrados com sucesso!');
   } catch (err) {
@@ -272,7 +323,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!memberHasAllowedRole(member)) {
           return interaction.reply({
             content: 'Você não tem permissão para usar este comando.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -285,7 +336,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!blacklistChannelId) {
           return interaction.reply({
             content: 'Canal de blacklist não configurado. Defina BLACKLIST_CHANNEL_ID no .env.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -293,7 +344,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!channel || !channel.isTextBased()) {
           return interaction.reply({
             content: 'Canal de blacklist inválido. Verifique BLACKLIST_CHANNEL_ID.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -323,7 +374,7 @@ client.on('interactionCreate', async (interaction) => {
         // Primeiro respondemos de forma ephemera ao comando
         await interaction.reply({
           content: 'Registrando blacklist...',
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
 
         // Envia mensagem no canal de blacklist
@@ -363,7 +414,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!memberHasRecruitManagerRole(member)) {
           return interaction.reply({
             content: 'Você não tem permissão para enviar o painel de recrutamento.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -392,7 +443,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!ranking.length) {
           return interaction.reply({
             content: 'Ainda não há recrutamentos aprovados.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -413,7 +464,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!memberHasAllowedRole(member)) {
           return interaction.reply({
             content: 'Você não tem permissão para adicionar recrutamentos manualmente.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -428,7 +479,7 @@ client.on('interactionCreate', async (interaction) => {
           return interaction.reply({
             content:
               'Canal de aprovações de recrutamento não configurado. Defina RECRUIT_APPROVAL_CHANNEL_ID no .env.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -437,7 +488,7 @@ client.on('interactionCreate', async (interaction) => {
           return interaction.reply({
             content:
               'Canal de aprovações de recrutamento inválido. Verifique RECRUIT_APPROVAL_CHANNEL_ID.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -516,14 +567,14 @@ client.on('interactionCreate', async (interaction) => {
 
         await interaction.reply({
           content: `Recrutamento adicionado manualmente para <@${candidate.id}> e enviado para aprovação.`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       } else if (interaction.commandName === 'remover_recrutamento') {
         const member = interaction.member;
         if (!memberHasAllowedRole(member)) {
           return interaction.reply({
             content: 'Você não tem permissão para remover recrutamentos manualmente.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -533,7 +584,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!recruit) {
           return interaction.reply({
             content: 'Recrutamento não encontrado com o ID fornecido.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -594,7 +645,7 @@ client.on('interactionCreate', async (interaction) => {
 
         await interaction.reply({
           content: `Recrutamento **${recruitId}** removido com sucesso.`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
     }
@@ -607,7 +658,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!memberHasAllowedRole(member)) {
           return interaction.reply({
             content: 'Você não tem permissão para remover blacklist.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -616,14 +667,14 @@ client.on('interactionCreate', async (interaction) => {
         if (!entry) {
           return interaction.reply({
             content: 'Registro de blacklist não encontrado.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
         if (entry.removed) {
           return interaction.reply({
             content: 'Este registro de blacklist já foi removido.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -656,7 +707,7 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.reply({
           content: 'Selecione abaixo quem foi o seu recrutador:',
           components: [row],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       } else if (customId.startsWith('approve_recruit:')) {
         const recruitId = customId.split(':')[1];
@@ -665,7 +716,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!memberHasRecruitManagerRole(member)) {
           return interaction.reply({
             content: 'Você não tem permissão para aprovar recrutamento.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -673,20 +724,20 @@ client.on('interactionCreate', async (interaction) => {
         if (!recruit) {
           return interaction.reply({
             content: 'Recrutamento não encontrado.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
         if (recruit.status === 'approved') {
           return interaction.reply({
             content: 'Este recrutamento já foi aprovado.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
         if (recruit.status === 'rejected') {
           return interaction.reply({
             content: 'Este recrutamento já foi reprovado.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -727,7 +778,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!memberHasRecruitManagerRole(member)) {
           return interaction.reply({
             content: 'Você não tem permissão para reprovar recrutamento.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -735,20 +786,20 @@ client.on('interactionCreate', async (interaction) => {
         if (!recruit) {
           return interaction.reply({
             content: 'Recrutamento não encontrado.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
         if (recruit.status === 'approved') {
           return interaction.reply({
             content: 'Este recrutamento já foi aprovado.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
         if (recruit.status === 'rejected') {
           return interaction.reply({
             content: 'Este recrutamento já foi reprovado.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -774,7 +825,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!memberHasRecruitManagerRole(member)) {
           return interaction.reply({
             content: 'Você não tem permissão para marcar kit como entregue.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -782,21 +833,21 @@ client.on('interactionCreate', async (interaction) => {
         if (!recruit) {
           return interaction.reply({
             content: 'Recrutamento não encontrado.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
         if (recruit.status !== 'approved') {
           return interaction.reply({
             content: 'Apenas recrutamentos aprovados podem ter o kit marcado como entregue.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
         if (recruit.kitDelivered) {
           return interaction.reply({
             content: 'O kit inicial já foi marcado como entregue.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -842,7 +893,7 @@ client.on('interactionCreate', async (interaction) => {
 
         await interaction.reply({
           content: 'Kit inicial marcado como entregue.',
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
     }
@@ -894,7 +945,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!memberHasAllowedRole(member)) {
           return interaction.reply({
             content: 'Você não tem permissão para remover blacklist.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -907,7 +958,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!updated) {
           return interaction.reply({
             content: 'Registro de blacklist não encontrado.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -955,7 +1006,7 @@ client.on('interactionCreate', async (interaction) => {
 
         await interaction.reply({
           content: 'Blacklist removida com sucesso.',
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       } else if (customId.startsWith('recruit_modal:')) {
         const recruiterId = customId.split(':')[1];
@@ -987,7 +1038,7 @@ client.on('interactionCreate', async (interaction) => {
           return interaction.reply({
             content:
               'Canal de aprovações de recrutamento não configurado. Defina RECRUIT_APPROVAL_CHANNEL_ID no .env.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -997,7 +1048,7 @@ client.on('interactionCreate', async (interaction) => {
           return interaction.reply({
             content:
               'Canal de aprovações de recrutamento inválido. Verifique RECRUIT_APPROVAL_CHANNEL_ID.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -1056,7 +1107,7 @@ client.on('interactionCreate', async (interaction) => {
 
         await interaction.reply({
           content: 'Seu pedido de set foi enviado para aprovação.',
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       } else if (customId.startsWith('approve_recruit_modal:')) {
         const recruitId = customId.split(':')[1];
@@ -1065,7 +1116,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!memberHasRecruitManagerRole(member)) {
           return interaction.reply({
             content: 'Você não tem permissão para aprovar recrutamento.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -1073,7 +1124,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!recruit) {
           return interaction.reply({
             content: 'Recrutamento não encontrado.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -1094,14 +1145,14 @@ client.on('interactionCreate', async (interaction) => {
           if (!updated) {
             return interaction.reply({
               content: 'Erro ao atualizar status do recrutamento no banco de dados.',
-              ephemeral: true,
+              flags: MessageFlags.Ephemeral,
             });
           }
         } catch (err) {
           console.error('Erro ao atualizar status do recrutamento:', err);
           return interaction.reply({
             content: 'Erro ao atualizar status do recrutamento. Verifique os logs.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -1244,7 +1295,7 @@ client.on('interactionCreate', async (interaction) => {
 
         await interaction.reply({
           content: 'Recrutamento aprovado com sucesso.',
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       } else if (customId.startsWith('reject_recruit_modal:')) {
         const recruitId = customId.split(':')[1];
@@ -1253,7 +1304,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!memberHasRecruitManagerRole(member)) {
           return interaction.reply({
             content: 'Você não tem permissão para reprovar recrutamento.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -1261,7 +1312,7 @@ client.on('interactionCreate', async (interaction) => {
         if (!recruit) {
           return interaction.reply({
             content: 'Recrutamento não encontrado.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -1321,7 +1372,7 @@ client.on('interactionCreate', async (interaction) => {
 
         await interaction.reply({
           content: 'Recrutamento reprovado.',
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
     }
@@ -1333,7 +1384,7 @@ client.on('interactionCreate', async (interaction) => {
     if (!interaction.replied && !interaction.deferred) {
       interaction.reply({
         content: 'Ocorreu um erro ao processar a interação. Verifique os logs do bot.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       }).catch((replyErr) => {
         console.error('Erro ao enviar resposta de erro:', replyErr);
       });
