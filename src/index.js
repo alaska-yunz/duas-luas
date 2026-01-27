@@ -50,19 +50,78 @@ function gerarRankingOrdenado() {
   return Array.from(ranking.entries()).sort((a, b) => b[1] - a[1]);
 }
 
-client.once('ready', () => {
+client.once('ready', async () => {
   console.log(`Logado como ${client.user.tag}`);
 
   // Registra o slash command /registrar_blacklist apenas no servidor desejado
   const guildId = process.env.GUILD_ID;
-  const guild = client.guilds.cache.get(guildId);
-  if (!guild) {
-    console.warn('Guild não encontrada para registrar comandos de barra. Verifique GUILD_ID.');
+  console.log(`Tentando registrar comandos na guild: ${guildId}`);
+  
+  if (!guildId) {
+    console.error('GUILD_ID não configurado no .env!');
     return;
   }
 
-  guild.commands
-    .set([
+  const guild = client.guilds.cache.get(guildId);
+  if (!guild) {
+    console.warn('Guild não encontrada no cache. Tentando buscar...');
+    try {
+      const fetchedGuild = await client.guilds.fetch(guildId);
+      console.log(`Guild encontrada: ${fetchedGuild.name}`);
+      
+      await fetchedGuild.commands.set([
+        {
+          name: 'registrar_blacklist',
+          description: 'Registrar um membro na blacklist do servidor.',
+          default_member_permissions: null, // vamos filtrar por cargo manualmente
+          dm_permission: false,
+          options: [
+            {
+              type: 3, // STRING
+              name: 'id_passaporte',
+              description: 'ID de passaporte da pessoa.',
+              required: true,
+            },
+            {
+              type: 3, // STRING
+              name: 'nome',
+              description: 'Nome da pessoa.',
+              required: true,
+            },
+            {
+              type: 3, // STRING
+              name: 'motivo',
+              description: 'Motivo do blacklist.',
+              required: true,
+            },
+            {
+              type: 3, // STRING
+              name: 'data',
+              description: 'Data do registro (ex: 25/01/2026 14:30). Deixe em branco para agora.',
+              required: false,
+            },
+          ],
+        },
+        {
+          name: 'inserir_painel_recrutamento',
+          description: 'Envia um bloco com botão para solicitar set no Duas Luas.',
+          dm_permission: false,
+        },
+        {
+          name: 'ranking_recrutamento',
+          description: 'Mostra o ranking de recrutamento dos membros.',
+          dm_permission: false,
+        },
+      ]);
+      console.log('Slash commands registrados com sucesso!');
+    } catch (err) {
+      console.error('Erro ao buscar/registrar comandos:', err);
+    }
+    return;
+  }
+
+  try {
+    await guild.commands.set([
       {
         name: 'registrar_blacklist',
         description: 'Registrar um membro na blacklist do servidor.',
@@ -105,9 +164,11 @@ client.once('ready', () => {
         description: 'Mostra o ranking de recrutamento dos membros.',
         dm_permission: false,
       },
-    ])
-    .then(() => console.log('Slash commands registrados.'))
-    .catch((err) => console.error('Erro ao registrar comandos de barra:', err));
+    ]);
+    console.log('Slash commands registrados com sucesso!');
+  } catch (err) {
+    console.error('Erro ao registrar comandos de barra:', err);
+  }
 });
 
 function formatDateBr(date) {
