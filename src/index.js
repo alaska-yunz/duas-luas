@@ -1262,6 +1262,7 @@ client.on('interactionCreate', async (interaction) => {
               await msg.edit({ embeds: [embed], components: [row] });
             }
           }
+          }
         } catch (err) {
           console.error('Erro ao atualizar mensagem de aprovação de recrutamento:', err);
         }
@@ -1326,9 +1327,13 @@ client.on('interactionCreate', async (interaction) => {
 
         // Atualiza mensagem de aprovação
         try {
-          const channel = await interaction.client.channels.fetch(updated.approvalChannelId);
-          if (channel && channel.isTextBased()) {
-            const msg = await channel.messages.fetch(updated.approvalMessageId).catch(() => null);
+          const approvalChannelId = recruit.approvalChannelId || updated?.approvalChannelId;
+          const approvalMessageId = recruit.approvalMessageId || updated?.approvalMessageId;
+
+          if (approvalChannelId && approvalMessageId) {
+            const channel = await interaction.client.channels.fetch(approvalChannelId);
+            if (channel && channel.isTextBased()) {
+              const msg = await channel.messages.fetch(approvalMessageId).catch(() => null);
             if (msg) {
               const now = new Date();
               const originalEmbed = msg.embeds[0];
@@ -1365,6 +1370,7 @@ client.on('interactionCreate', async (interaction) => {
 
               await msg.edit({ embeds: [embed], components: [disabledRow] });
             }
+          }
           }
         } catch (err) {
           console.error('Erro ao atualizar mensagem de reprovação de recrutamento:', err);
