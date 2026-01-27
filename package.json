@@ -1,0 +1,26 @@
+{
+  "name": "discord-ranking-bot",
+  "version": "1.0.0",
+  "description": "Bot de Discord para receber registros, encaminhar para aprovação, atualizar ranking e enviar devolutivas.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "ranking"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.7",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}
+
