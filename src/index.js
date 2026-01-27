@@ -44,6 +44,34 @@ const registrosPendentes = new Map(); // idRegistro -> { autorId, conteudo }
 const ranking = new Map(); // userId -> pontos
 let ultimoIdRegistro = 0;
 
+// Helper para verificar se a interação já foi respondida
+function isInteractionResponded(interaction) {
+  return interaction.replied || interaction.deferred;
+}
+
+// Helper para responder a interação com tratamento de erros
+async function safeReply(interaction, options) {
+  if (isInteractionResponded(interaction)) {
+    console.warn('Tentativa de responder interação já respondida:', interaction.customId || interaction.commandName);
+    return;
+  }
+  try {
+    return await interaction.reply(options);
+  } catch (err) {
+    if (err.code === 10062) {
+      // Unknown interaction - interação expirada
+      console.warn('Interação expirada (10062):', interaction.customId || interaction.commandName);
+      return;
+    }
+    if (err.code === 40060) {
+      // Interaction already acknowledged
+      console.warn('Interação já foi reconhecida (40060):', interaction.customId || interaction.commandName);
+      return;
+    }
+    throw err;
+  }
+}
+
 function adicionarPonto(userId, pontos = 1) {
   const atual = ranking.get(userId) || 0;
   ranking.set(userId, atual + pontos);
@@ -754,37 +782,51 @@ client.on('interactionCreate', async (interaction) => {
     // Menus de seleção (recrutador)
     if (interaction.isUserSelectMenu()) {
       if (interaction.customId === 'select_recruiter') {
-        const recruiterId = interaction.values[0];
+        try {
+          const recruiterId = interaction.values[0];
 
-        const modal = new ModalBuilder()
-          .setCustomId(`recruit_modal:${recruiterId}`)
-          .setTitle('Solicitar set - Duas Luas');
+          const modal = new ModalBuilder()
+            .setCustomId(`recruit_modal:${recruiterId}`)
+            .setTitle('Solicitar set - Duas Luas');
 
-        const nameInput = new TextInputBuilder()
-          .setCustomId('nome_sobrenome')
-          .setLabel('Nome e Sobrenome (in-game)')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true);
+          const nameInput = new TextInputBuilder()
+            .setCustomId('nome_sobrenome')
+            .setLabel('Nome e Sobrenome (in-game)')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
 
-        const phoneInput = new TextInputBuilder()
-          .setCustomId('telefone_ingame')
-          .setLabel('Telefone in-game (não use número real)')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true);
+          const phoneInput = new TextInputBuilder()
+            .setCustomId('telefone_ingame')
+            .setLabel('Telefone in-game (não use número real)')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
 
-        const passportInput = new TextInputBuilder()
-          .setCustomId('passaporte_ingame')
-          .setLabel('Passaporte in-game (veja no F11)')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true);
+          const passportInput = new TextInputBuilder()
+            .setCustomId('passaporte_ingame')
+            .setLabel('Passaporte in-game (veja no F11)')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true);
 
-        const row1 = new ActionRowBuilder().addComponents(nameInput);
-        const row2 = new ActionRowBuilder().addComponents(phoneInput);
-        const row3 = new ActionRowBuilder().addComponents(passportInput);
+          const row1 = new ActionRowBuilder().addComponents(nameInput);
+          const row2 = new ActionRowBuilder().addComponents(phoneInput);
+          const row3 = new ActionRowBuilder().addComponents(passportInput);
 
-        modal.addComponents(row1, row2, row3);
+          modal.addComponents(row1, row2, row3);
 
-        await interaction.showModal(modal);
+          await interaction.showModal(modal);
+        } catch (err) {
+          if (err.code === 10062) {
+            console.warn('Interação expirada ao mostrar modal de recrutamento');
+            return;
+          }
+          console.error('Erro ao mostrar modal de recrutamento:', err);
+          if (!isInteractionResponded(interaction)) {
+            await safeReply(interaction, {
+              content: 'Ocorreu um erro ao abrir o formulário. Tente novamente.',
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+        }
       }
     }
 
@@ -897,28 +939,44 @@ client.on('interactionCreate', async (interaction) => {
             console.error('Erro ao atualizar nickname do membro:', err.message);
           }
 
-          // Adiciona cargo de olheiro
-          const olheiroRoleId = process.env.ROLE_OLHEIRO_ID;
-          if (!olheiroRoleId) {
-            console.warn('⚠ ROLE_OLHEIRO_ID não configurado no .env');
-          } else {
-            try {
-              const role = await guild.roles.fetch(olheiroRoleId).catch(() => null);
-              if (!role) {
-                console.error(`❌ Cargo de olheiro não encontrado com ID: ${olheiroRoleId}`);
-              } else {
-                if (!guildMember.roles.cache.has(olheiroRoleId)) {
-                  await guildMember.roles.add(olheiroRoleId);
-                  console.log(`✓ Cargo de olheiro adicionado para ${guildMember.user.tag}`);
+            // Adiciona cargo de olheiro
+            const olheiroRoleId = process.env.ROLE_OLHEIRO_ID;
+            if (!olheiroRoleId) {
+              console.warn('⚠ ROLE_OLHEIRO_ID não configurado no .env');
+            } else {
+              try {
+                const role = await guild.roles.fetch(olheiroRoleId).catch(() => null);
+                if (!role) {
+                  console.error(`❌ Cargo de olheiro não encontrado com ID: ${olheiroRoleId}`);
                 } else {
-                  console.log(`ℹ ${guildMember.user.tag} já possui o cargo de olheiro`);
+                  // Verifica se o bot tem permissão para gerenciar cargos
+                  const botMember = await guild.members.fetch(interaction.client.user.id);
+                  if (!botMember.permissions.has('ManageRoles')) {
+                    console.error('❌ Bot não tem permissão "Gerenciar Cargos" no servidor');
+                    console.error('Por favor, dê a permissão "Gerenciar Cargos" ao bot nas configurações do servidor');
+                  } else if (role.position >= botMember.roles.highest.position) {
+                    console.error(`❌ O cargo de olheiro (${role.name}) está acima ou igual ao cargo mais alto do bot`);
+                    console.error('O bot precisa ter um cargo acima do cargo de olheiro para poder atribuí-lo');
+                  } else {
+                    if (!guildMember.roles.cache.has(olheiroRoleId)) {
+                      await guildMember.roles.add(olheiroRoleId);
+                      console.log(`✓ Cargo de olheiro adicionado para ${guildMember.user.tag}`);
+                    } else {
+                      console.log(`ℹ ${guildMember.user.tag} já possui o cargo de olheiro`);
+                    }
+                  }
+                }
+              } catch (err) {
+                if (err.code === 50013) {
+                  console.error('❌ Erro de permissão ao adicionar cargo de olheiro:');
+                  console.error('   - Verifique se o bot tem a permissão "Gerenciar Cargos"');
+                  console.error('   - Verifique se o cargo do bot está acima do cargo de olheiro na hierarquia');
+                } else {
+                  console.error('Erro ao adicionar cargo de olheiro:', err.message);
+                  console.error('Stack:', err.stack);
                 }
               }
-            } catch (err) {
-              console.error('Erro ao adicionar cargo de olheiro:', err.message);
-              console.error('Stack:', err.stack);
             }
-          }
             }
           }
         } catch (err) {
@@ -1007,7 +1065,7 @@ client.on('interactionCreate', async (interaction) => {
         const member = interaction.member;
 
         if (!memberHasRecruitManagerRole(member)) {
-          return interaction.reply({
+          return await safeReply(interaction, {
             content: 'Você não tem permissão para aprovar recrutamento.',
             flags: MessageFlags.Ephemeral,
           });
@@ -1015,8 +1073,23 @@ client.on('interactionCreate', async (interaction) => {
 
         const recruit = await getRecruitById(recruitId);
         if (!recruit) {
-          return interaction.reply({
+          return await safeReply(interaction, {
             content: 'Recrutamento não encontrado.',
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        // Verifica se já foi aprovado para evitar processamento duplicado
+        if (recruit.status === 'approved') {
+          return await safeReply(interaction, {
+            content: 'Este recrutamento já foi aprovado anteriormente.',
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        if (recruit.status === 'rejected') {
+          return await safeReply(interaction, {
+            content: 'Este recrutamento já foi reprovado e não pode ser aprovado.',
             flags: MessageFlags.Ephemeral,
           });
         }
@@ -1036,7 +1109,7 @@ client.on('interactionCreate', async (interaction) => {
           });
 
           if (!updated) {
-            return interaction.reply({
+            return await safeReply(interaction, {
               content: 'Erro ao atualizar status do recrutamento no banco de dados.',
               flags: MessageFlags.Ephemeral,
             });
@@ -1047,7 +1120,7 @@ client.on('interactionCreate', async (interaction) => {
           console.error('Recruit ID:', recruitId);
           console.error('Status:', 'approved');
           console.error('Dados:', { primeiraCorrida, primeiroFarm, primeiroDesmanche });
-          return interaction.reply({
+          return await safeReply(interaction, {
             content: `Erro ao atualizar status do recrutamento: ${err.message || 'Erro desconhecido'}. Verifique os logs do bot.`,
             flags: MessageFlags.Ephemeral,
           });
@@ -1063,28 +1136,73 @@ client.on('interactionCreate', async (interaction) => {
             const olheiroRoleId = process.env.ROLE_OLHEIRO_ID;
             const membroRoleId = process.env.ROLE_MEMBRO_ID;
 
-            // Remove cargo de olheiro (se tiver)
-            if (olheiroRoleId) {
-              if (guildMember.roles.cache.has(olheiroRoleId)) {
-                await guildMember.roles.remove(olheiroRoleId);
-                console.log(`Cargo de olheiro removido de ${guildMember.user.tag}`);
-              }
-            }
+            // Verifica permissões do bot
+            const botMember = await guild.members.fetch(interaction.client.user.id);
+            const hasManageRoles = botMember.permissions.has('ManageRoles');
 
-            // Adiciona cargo de membro
-            if (membroRoleId) {
-              if (!guildMember.roles.cache.has(membroRoleId)) {
-                await guildMember.roles.add(membroRoleId);
-                console.log(`Cargo de membro adicionado para ${guildMember.user.tag}`);
-              }
+            if (!hasManageRoles) {
+              console.error('❌ Bot não tem permissão "Gerenciar Cargos" no servidor');
+              console.error('Por favor, dê a permissão "Gerenciar Cargos" ao bot nas configurações do servidor');
             } else {
-              console.warn('ROLE_MEMBRO_ID não configurado no .env');
+              // Remove cargo de olheiro (se tiver)
+              if (olheiroRoleId) {
+                try {
+                  const olheiroRole = await guild.roles.fetch(olheiroRoleId).catch(() => null);
+                  if (olheiroRole && olheiroRole.position < botMember.roles.highest.position) {
+                    if (guildMember.roles.cache.has(olheiroRoleId)) {
+                      await guildMember.roles.remove(olheiroRoleId);
+                      console.log(`✓ Cargo de olheiro removido de ${guildMember.user.tag}`);
+                    }
+                  } else if (olheiroRole) {
+                    console.error(`❌ Cargo de olheiro está acima do cargo do bot na hierarquia`);
+                  }
+                } catch (err) {
+                  if (err.code === 50013) {
+                    console.error('❌ Sem permissão para remover cargo de olheiro');
+                  } else {
+                    console.error('Erro ao remover cargo de olheiro:', err.message);
+                  }
+                }
+              }
+
+              // Adiciona cargo de membro
+              if (membroRoleId) {
+                try {
+                  const membroRole = await guild.roles.fetch(membroRoleId).catch(() => null);
+                  if (!membroRole) {
+                    console.error(`❌ Cargo de membro não encontrado com ID: ${membroRoleId}`);
+                  } else if (membroRole.position >= botMember.roles.highest.position) {
+                    console.error(`❌ O cargo de membro (${membroRole.name}) está acima ou igual ao cargo mais alto do bot`);
+                    console.error('O bot precisa ter um cargo acima do cargo de membro para poder atribuí-lo');
+                  } else {
+                    if (!guildMember.roles.cache.has(membroRoleId)) {
+                      await guildMember.roles.add(membroRoleId);
+                      console.log(`✓ Cargo de membro adicionado para ${guildMember.user.tag}`);
+                    } else {
+                      console.log(`ℹ ${guildMember.user.tag} já possui o cargo de membro`);
+                    }
+                  }
+                } catch (err) {
+                  if (err.code === 50013) {
+                    console.error('❌ Erro de permissão ao adicionar cargo de membro:');
+                    console.error('   - Verifique se o bot tem a permissão "Gerenciar Cargos"');
+                    console.error('   - Verifique se o cargo do bot está acima do cargo de membro na hierarquia');
+                  } else {
+                    console.error('Erro ao adicionar cargo de membro:', err.message);
+                  }
+                }
+              } else {
+                console.warn('⚠ ROLE_MEMBRO_ID não configurado no .env');
+              }
             }
           } else {
             console.warn(`Membro ${recruit.candidateId} não encontrado no servidor`);
           }
         } catch (err) {
           console.error('Erro ao atualizar cargos do membro aprovado:', err);
+          if (err.code === 50013) {
+            console.error('❌ Erro de permissão: O bot precisa ter a permissão "Gerenciar Cargos"');
+          }
         }
 
         // Atualiza mensagem de aprovação
@@ -1164,7 +1282,7 @@ client.on('interactionCreate', async (interaction) => {
           console.error('Erro ao atualizar mensagem de aprovação de recrutamento:', err);
         }
 
-        // Mensagem de boas-vindas
+        // Mensagem de boas-vindas (apenas se não foi aprovado antes)
         try {
           const welcomeChannelId = process.env.WELCOME_CHANNEL_ID;
           if (welcomeChannelId) {
@@ -1175,23 +1293,27 @@ client.on('interactionCreate', async (interaction) => {
 
               const welcomeEmbed = new EmbedBuilder()
                 .setTitle('Bem vindo(a) ao Duas Luas!')
-                .setDescription(`<@${recruit.candidateId}>, seja bem vindo(a) ao Duas Luas!`)
                 .setThumbnail(avatarUrl)
                 .setColor(0xe91e63);
 
+              console.log(`Enviando mensagem de boas-vindas para ${user.tag} (${recruit.candidateId})`);
               const welcomeMessage = await welcomeChannel.send({
                 content: `<@${recruit.candidateId}> seja bem vindo(a) ao Duas Luas!`,
                 embeds: [welcomeEmbed],
               });
 
               await welcomeMessage.react('❤️').catch(() => {});
+              console.log(`✓ Mensagem de boas-vindas enviada com sucesso para ${user.tag}`);
             }
+          } else {
+            console.warn('WELCOME_CHANNEL_ID não configurado');
           }
         } catch (err) {
           console.error('Erro ao enviar mensagem de boas-vindas:', err);
+          console.error('Stack:', err.stack);
         }
 
-        await interaction.reply({
+        await safeReply(interaction, {
           content: 'Recrutamento aprovado com sucesso.',
           flags: MessageFlags.Ephemeral,
         });
@@ -1273,7 +1395,7 @@ client.on('interactionCreate', async (interaction) => {
           console.error('Erro ao atualizar mensagem de reprovação de recrutamento:', err);
         }
 
-        await interaction.reply({
+        await safeReply(interaction, {
           content: 'Recrutamento reprovado.',
           flags: MessageFlags.Ephemeral,
         });
