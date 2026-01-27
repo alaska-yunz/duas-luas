@@ -949,14 +949,23 @@ client.on('interactionCreate', async (interaction) => {
                 if (!role) {
                   console.error(`❌ Cargo de olheiro não encontrado com ID: ${olheiroRoleId}`);
                 } else {
-                  // Verifica se o bot tem permissão para gerenciar cargos
+                  // Verifica permissões e hierarquia do bot
                   const botMember = await guild.members.fetch(interaction.client.user.id);
-                  if (!botMember.permissions.has('ManageRoles')) {
+                  const botHighestRole = botMember.roles.highest;
+                  const hasManageRoles = botMember.permissions.has('ManageRoles');
+                  
+                  console.log(`Verificando permissões para adicionar cargo de olheiro:`);
+                  console.log(`  - Bot tem permissão "Gerenciar Cargos": ${hasManageRoles}`);
+                  console.log(`  - Cargo do bot mais alto: ${botHighestRole.name} (posição: ${botHighestRole.position})`);
+                  console.log(`  - Cargo de olheiro: ${role.name} (posição: ${role.position})`);
+                  
+                  if (!hasManageRoles) {
                     console.error('❌ Bot não tem permissão "Gerenciar Cargos" no servidor');
-                    console.error('Por favor, dê a permissão "Gerenciar Cargos" ao bot nas configurações do servidor');
-                  } else if (role.position >= botMember.roles.highest.position) {
+                    console.error('   SOLUÇÃO: Vá em Configurações do Servidor → Integrações → Bots → [Seu Bot] → Ative "Gerenciar Cargos"');
+                  } else if (role.position >= botHighestRole.position) {
                     console.error(`❌ O cargo de olheiro (${role.name}) está acima ou igual ao cargo mais alto do bot`);
-                    console.error('O bot precisa ter um cargo acima do cargo de olheiro para poder atribuí-lo');
+                    console.error(`   Posição do cargo olheiro: ${role.position}, Posição do bot: ${botHighestRole.position}`);
+                    console.error('   SOLUÇÃO: Mova o cargo do bot para cima do cargo de olheiro na hierarquia de cargos');
                   } else {
                     if (!guildMember.roles.cache.has(olheiroRoleId)) {
                       await guildMember.roles.add(olheiroRoleId);
@@ -968,9 +977,12 @@ client.on('interactionCreate', async (interaction) => {
                 }
               } catch (err) {
                 if (err.code === 50013) {
-                  console.error('❌ Erro de permissão ao adicionar cargo de olheiro:');
-                  console.error('   - Verifique se o bot tem a permissão "Gerenciar Cargos"');
-                  console.error('   - Verifique se o cargo do bot está acima do cargo de olheiro na hierarquia');
+                  console.error('❌ Erro de permissão ao adicionar cargo de olheiro (código 50013)');
+                  console.error('   Possíveis causas:');
+                  console.error('   1. Bot não tem permissão "Gerenciar Cargos"');
+                  console.error('   2. Cargo do bot está abaixo do cargo de olheiro na hierarquia');
+                  console.error('   3. O cargo de olheiro é um cargo gerenciado (integrado)');
+                  console.error('   SOLUÇÃO: Verifique as configurações de permissões e hierarquia do bot');
                 } else {
                   console.error('Erro ao adicionar cargo de olheiro:', err.message);
                   console.error('Stack:', err.stack);
