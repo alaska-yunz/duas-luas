@@ -79,6 +79,41 @@ async function ensureTable() {
       kit_delivered_at TIMESTAMPTZ
     );
   `);
+
+  // Migração: adiciona colunas se não existirem (para tabelas criadas antes)
+  try {
+    // Verifica se a coluna existe antes de adicionar
+    const checkColumn = async (columnName) => {
+      const result = await pool.query(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name='recruits' AND column_name=$1
+      `, [columnName]);
+      return result.rows.length > 0;
+    };
+
+    if (!(await checkColumn('first_race'))) {
+      await pool.query(`ALTER TABLE recruits ADD COLUMN first_race TEXT;`);
+    }
+    if (!(await checkColumn('first_farm'))) {
+      await pool.query(`ALTER TABLE recruits ADD COLUMN first_farm TEXT;`);
+    }
+    if (!(await checkColumn('first_dismantle'))) {
+      await pool.query(`ALTER TABLE recruits ADD COLUMN first_dismantle TEXT;`);
+    }
+    if (!(await checkColumn('kit_delivered'))) {
+      await pool.query(`ALTER TABLE recruits ADD COLUMN kit_delivered BOOLEAN NOT NULL DEFAULT FALSE;`);
+    }
+    if (!(await checkColumn('kit_delivered_by'))) {
+      await pool.query(`ALTER TABLE recruits ADD COLUMN kit_delivered_by TEXT;`);
+    }
+    if (!(await checkColumn('kit_delivered_at'))) {
+      await pool.query(`ALTER TABLE recruits ADD COLUMN kit_delivered_at TIMESTAMPTZ;`);
+    }
+  } catch (err) {
+    // Loga o erro mas não falha
+    console.error('Erro na migração de colunas:', err.message);
+  }
 }
 
 function normalizeRow(row) {
@@ -231,36 +266,52 @@ async function updateRecruitStatus(id, { status, approvedBy, rejectedBy, rejectR
 
   await ensureTable();
   const now = new Date().toISOString();
-  if (status === 'approved') {
-    await pool.query(
-      `
-        UPDATE recruits
-        SET status = 'approved',
-            approved_by = $2,
-            approved_at = $3,
-            first_race = $4,
-            first_farm = $5,
-            first_dismantle = $6
-        WHERE id = $1
-      `,
-      [id, approvedBy, now, firstRace || null, firstFarm || null, firstDismantle || null],
-    );
-  } else if (status === 'rejected') {
-    await pool.query(
-      `
-        UPDATE recruits
-        SET status = 'rejected',
-            rejected_by = $2,
-            rejected_at = $3,
-            reject_reason = $4
-        WHERE id = $1
-      `,
-      [id, rejectedBy, now, rejectReason || null],
-    );
-  }
+  
+  try {
+    if (status === 'approved') {
+      const result = await pool.query(
+        `
+          UPDATE recruits
+          SET status = 'approved',
+              approved_by = $2,
+              approved_at = $3,
+              first_race = $4,
+              first_farm = $5,
+              first_dismantle = $6
+          WHERE id = $1
+        `,
+        [id, approvedBy, now, firstRace || null, firstFarm || null, firstDismantle || null],
+      );
+      
+      if (result.rowCount === 0) {
+        console.error(`Nenhum registro encontrado com id ${id} para aprovar`);
+        return null;
+      }
+    } else if (status === 'rejected') {
+      const result = await pool.query(
+        `
+          UPDATE recruits
+          SET status = 'rejected',
+              rejected_by = $2,
+              rejected_at = $3,
+              reject_reason = $4
+          WHERE id = $1
+        `,
+        [id, rejectedBy, now, rejectReason || null],
+      );
+      
+      if (result.rowCount === 0) {
+        console.error(`Nenhum registro encontrado com id ${id} para reprovar`);
+        return null;
+      }
+    }
 
-  const { rows } = await pool.query('SELECT * FROM recruits WHERE id = $1', [id]);
-  return rows[0] ? normalizeRow(rows[0]) : null;
+    const { rows } = await pool.query('SELECT * FROM recruits WHERE id = $1', [id]);
+    return rows[0] ? normalizeRow(rows[0]) : null;
+  } catch (err) {
+    console.error('Erro ao atualizar status do recrutamento no banco:', err);
+    throw err;
+  }
 }
 
 async function markKitDelivered(id, deliveredBy) {

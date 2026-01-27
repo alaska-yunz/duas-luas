@@ -1003,8 +1003,12 @@ client.on('interactionCreate', async (interaction) => {
           }
         } catch (err) {
           console.error('Erro ao atualizar status do recrutamento:', err);
+          console.error('Stack trace:', err.stack);
+          console.error('Recruit ID:', recruitId);
+          console.error('Status:', 'approved');
+          console.error('Dados:', { primeiraCorrida, primeiroFarm, primeiroDesmanche });
           return interaction.reply({
-            content: 'Erro ao atualizar status do recrutamento. Verifique os logs.',
+            content: `Erro ao atualizar status do recrutamento: ${err.message || 'Erro desconhecido'}. Verifique os logs do bot.`,
             flags: MessageFlags.Ephemeral,
           });
         }
