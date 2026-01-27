@@ -331,6 +331,99 @@ async function getRecruitRanking(limit = 10) {
   return rows.map((r) => ({ recruiterId: r.recruiter_id, total: Number(r.total) }));
 }
 
+async function adjustRankingPoints(recruiterId, quantity, adjustedBy) {
+  // Cria registros "fantasma" para ajustar o ranking
+  // Se quantity > 0, adiciona pontos; se < 0, remove pontos
+  const absQuantity = Math.abs(quantity);
+  const isAdding = quantity > 0;
+
+  if (!useDb || !pool) {
+    // Para modo arquivo, não fazemos ajuste manual
+    console.warn('Ajuste manual de ranking não suportado em modo arquivo');
+    return { success: false, message: 'Ajuste manual requer banco de dados' };
+  }
+
+  await ensureTable();
+  const now = new Date().toISOString();
+
+  if (isAdding) {
+    // Adiciona pontos: cria registros "fantasma" aprovados
+    for (let i = 0; i < absQuantity; i++) {
+      const id = generateId();
+      await pool.query(
+        `
+          INSERT INTO recruits (
+            id, recruiter_id, candidate_id, candidate_name,
+            phone, passport, status, created_at,
+            approved_by, approved_at,
+            blacklist_flag, approval_channel_id, approval_message_id
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        `,
+        [
+          id,
+          recruiterId,
+          'manual_adjustment',
+          `Ajuste manual (${adjustedBy})`,
+          'N/A',
+          'N/A',
+          'approved',
+          now,
+          adjustedBy,
+          now,
+          false,
+          null,
+          null,
+        ],
+      );
+    }
+  } else {
+    // Remove pontos: marca registros aprovados como rejeitados (começando pelos mais antigos)
+    const { rows } = await pool.query(
+      `
+        SELECT id FROM recruits
+        WHERE recruiter_id = $1
+          AND status = 'approved'
+          AND candidate_id = 'manual_adjustment'
+        ORDER BY approved_at ASC
+        LIMIT $2
+      `,
+      [recruiterId, absQuantity],
+    );
+
+    if (rows.length < absQuantity) {
+      // Se não há ajustes manuais suficientes, busca recrutamentos normais
+      const { rows: normalRows } = await pool.query(
+        `
+          SELECT id FROM recruits
+          WHERE recruiter_id = $1
+            AND status = 'approved'
+          ORDER BY approved_at ASC
+          LIMIT $2
+        `,
+        [recruiterId, absQuantity - rows.length],
+      );
+      rows.push(...normalRows);
+    }
+
+    for (const row of rows) {
+      await pool.query(
+        `
+          UPDATE recruits
+          SET status = 'rejected',
+              rejected_by = $2,
+              rejected_at = $3,
+              reject_reason = 'Removido manualmente do ranking'
+          WHERE id = $1
+        `,
+        [row.id, adjustedBy, now],
+      );
+    }
+  }
+
+  return { success: true, message: `${isAdding ? 'Adicionados' : 'Removidos'} ${absQuantity} ponto(s) do ranking` };
+}
+
 module.exports = {
   generateId,
   addRecruit,
@@ -338,5 +431,6 @@ module.exports = {
   getRecruitById,
   getRecruitRanking,
   markKitDelivered,
+  adjustRankingPoints,
 };
 

@@ -26,6 +26,7 @@ const {
   getRecruitById,
   getRecruitRanking,
   markKitDelivered,
+  adjustRankingPoints,
 } = require('./recruitStore');
 
 const client = new Client({
@@ -116,50 +117,38 @@ client.once('ready', async () => {
         },
         {
           name: 'adicionar_recrutamento',
-          description: 'Adiciona um recrutamento manualmente (apenas para cargos autorizados).',
+          description: 'Adiciona pontos ao ranking de recrutamento (apenas para cargos autorizados).',
           dm_permission: false,
           options: [
             {
               type: 6, // USER
               name: 'recrutador',
-              description: 'Quem foi o recrutador.',
+              description: 'O recrutador que receberá os pontos.',
               required: true,
             },
             {
-              type: 6, // USER
-              name: 'candidato',
-              description: 'O candidato recrutado.',
-              required: true,
-            },
-            {
-              type: 3, // STRING
-              name: 'nome',
-              description: 'Nome completo do candidato (Nome Sobrenome).',
-              required: true,
-            },
-            {
-              type: 3, // STRING
-              name: 'telefone',
-              description: 'Telefone in-game do candidato.',
-              required: true,
-            },
-            {
-              type: 3, // STRING
-              name: 'passaporte',
-              description: 'Passaporte in-game do candidato.',
+              type: 4, // INTEGER
+              name: 'quantidade',
+              description: 'Quantidade de pontos a adicionar.',
               required: true,
             },
           ],
         },
         {
           name: 'remover_recrutamento',
-          description: 'Remove um recrutamento manualmente (apenas para cargos autorizados).',
+          description: 'Remove pontos do ranking de recrutamento (apenas para cargos autorizados).',
           dm_permission: false,
           options: [
             {
-              type: 3, // STRING
-              name: 'id',
-              description: 'ID do recrutamento a ser removido.',
+              type: 6, // USER
+              name: 'recrutador',
+              description: 'O recrutador que perderá os pontos.',
+              required: true,
+            },
+            {
+              type: 4, // INTEGER
+              name: 'quantidade',
+              description: 'Quantidade de pontos a remover.',
               required: true,
             },
           ],
@@ -218,50 +207,38 @@ client.once('ready', async () => {
       },
       {
         name: 'adicionar_recrutamento',
-        description: 'Adiciona um recrutamento manualmente (apenas para cargos autorizados).',
+        description: 'Adiciona pontos ao ranking de recrutamento (apenas para cargos autorizados).',
         dm_permission: false,
         options: [
           {
             type: 6, // USER
             name: 'recrutador',
-            description: 'Quem foi o recrutador.',
+            description: 'O recrutador que receberá os pontos.',
             required: true,
           },
           {
-            type: 6, // USER
-            name: 'candidato',
-            description: 'O candidato recrutado.',
-            required: true,
-          },
-          {
-            type: 3, // STRING
-            name: 'nome',
-            description: 'Nome completo do candidato (Nome Sobrenome).',
-            required: true,
-          },
-          {
-            type: 3, // STRING
-            name: 'telefone',
-            description: 'Telefone in-game do candidato.',
-            required: true,
-          },
-          {
-            type: 3, // STRING
-            name: 'passaporte',
-            description: 'Passaporte in-game do candidato.',
+            type: 4, // INTEGER
+            name: 'quantidade',
+            description: 'Quantidade de pontos a adicionar.',
             required: true,
           },
         ],
       },
       {
         name: 'remover_recrutamento',
-        description: 'Remove um recrutamento manualmente (apenas para cargos autorizados).',
+        description: 'Remove pontos do ranking de recrutamento (apenas para cargos autorizados).',
         dm_permission: false,
         options: [
           {
-            type: 3, // STRING
-            name: 'id',
-            description: 'ID do recrutamento a ser removido.',
+            type: 6, // USER
+            name: 'recrutador',
+            description: 'O recrutador que perderá os pontos.',
+            required: true,
+          },
+          {
+            type: 4, // INTEGER
+            name: 'quantidade',
+            description: 'Quantidade de pontos a remover.',
             required: true,
           },
         ],
@@ -463,188 +440,64 @@ client.on('interactionCreate', async (interaction) => {
         const member = interaction.member;
         if (!memberHasAllowedRole(member)) {
           return interaction.reply({
-            content: 'Você não tem permissão para adicionar recrutamentos manualmente.',
+            content: 'Você não tem permissão para adicionar pontos ao ranking.',
             flags: MessageFlags.Ephemeral,
           });
         }
 
         const recruiter = interaction.options.getUser('recrutador', true);
-        const candidate = interaction.options.getUser('candidato', true);
-        const nome = interaction.options.getString('nome', true);
-        const telefone = interaction.options.getString('telefone', true);
-        const passaporte = interaction.options.getString('passaporte', true);
+        const quantidade = interaction.options.getInteger('quantidade', true);
 
-        const approvalChannelId = process.env.RECRUIT_APPROVAL_CHANNEL_ID;
-        if (!approvalChannelId) {
+        if (quantidade <= 0) {
           return interaction.reply({
-            content:
-              'Canal de aprovações de recrutamento não configurado. Defina RECRUIT_APPROVAL_CHANNEL_ID no .env.',
+            content: 'A quantidade deve ser maior que zero.',
             flags: MessageFlags.Ephemeral,
           });
         }
 
-        const approvalChannel = await interaction.client.channels.fetch(approvalChannelId);
-        if (!approvalChannel || !approvalChannel.isTextBased()) {
+        const result = await adjustRankingPoints(recruiter.id, quantidade, interaction.user.id);
+
+        if (!result.success) {
           return interaction.reply({
-            content:
-              'Canal de aprovações de recrutamento inválido. Verifique RECRUIT_APPROVAL_CHANNEL_ID.',
+            content: result.message || 'Erro ao adicionar pontos ao ranking.',
             flags: MessageFlags.Ephemeral,
           });
-        }
-
-        // Checa blacklist pelo passaporte
-        const blacklistEntry = await getActiveBlacklistByPassport(passaporte);
-
-        const recruitId = generateRecruitId();
-
-        const embed = new EmbedBuilder()
-          .setTitle('📝 Novo pedido de set (Adicionado manualmente)')
-          .setColor(0x9b59b6)
-          .addFields(
-            { name: 'Recrutador', value: `<@${recruiter.id}>`, inline: true },
-            { name: 'Candidato', value: `<@${candidate.id}>`, inline: true },
-            { name: 'Nome', value: nome, inline: false },
-            { name: 'Telefone in-game', value: telefone, inline: true },
-            { name: 'Passaporte in-game', value: passaporte, inline: true },
-            {
-              name: 'Adicionado por',
-              value: `<@${interaction.user.id}>`,
-              inline: false,
-            },
-          )
-          .setTimestamp(new Date());
-
-        if (blacklistEntry) {
-          embed.addFields({
-            name: '⚠ Atenção: em blacklist',
-            value: `Este passaporte está em blacklist.\nMotivo: **${blacklistEntry.motivo}**`,
-          });
-        }
-
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`approve_recruit:${recruitId}`)
-            .setLabel('Aprovar recrutamento')
-            .setStyle(ButtonStyle.Success),
-          new ButtonBuilder()
-            .setCustomId(`reject_recruit:${recruitId}`)
-            .setLabel('Reprovar recrutamento')
-            .setStyle(ButtonStyle.Danger),
-        );
-
-        const approvalMessage = await approvalChannel.send({
-          embeds: [embed],
-          components: [row],
-        });
-
-        await addRecruit({
-          id: recruitId,
-          recruiterId: recruiter.id,
-          candidateId: candidate.id,
-          candidateName: nome,
-          phone: telefone,
-          passport: passaporte,
-          blacklistFlag: !!blacklistEntry,
-          blacklistReason: blacklistEntry ? blacklistEntry.motivo : null,
-          approvalChannelId: approvalChannel.id,
-          approvalMessageId: approvalMessage.id,
-        });
-
-        // Atualiza o nickname do candidato
-        try {
-          const guild = interaction.guild;
-          const guildMember = await guild.members.fetch(candidate.id).catch(() => null);
-          if (guildMember) {
-            const newNickname = `${nome} | ${passaporte}`;
-            const truncatedNickname = newNickname.length > 32 ? newNickname.substring(0, 29) + '...' : newNickname;
-            await guildMember.setNickname(truncatedNickname).catch((err) => {
-              console.error('Erro ao atualizar nickname do membro:', err);
-            });
-          }
-        } catch (err) {
-          console.error('Erro ao atualizar nickname do membro:', err);
         }
 
         await interaction.reply({
-          content: `Recrutamento adicionado manualmente para <@${candidate.id}> e enviado para aprovação.`,
+          content: `${result.message}\nRecrutador: <@${recruiter.id}>\nQuantidade: **${quantidade}** ponto(s)`,
           flags: MessageFlags.Ephemeral,
         });
       } else if (interaction.commandName === 'remover_recrutamento') {
         const member = interaction.member;
         if (!memberHasAllowedRole(member)) {
           return interaction.reply({
-            content: 'Você não tem permissão para remover recrutamentos manualmente.',
+            content: 'Você não tem permissão para remover pontos do ranking.',
             flags: MessageFlags.Ephemeral,
           });
         }
 
-        const recruitId = interaction.options.getString('id', true);
-        const recruit = await getRecruitById(recruitId);
+        const recruiter = interaction.options.getUser('recrutador', true);
+        const quantidade = interaction.options.getInteger('quantidade', true);
 
-        if (!recruit) {
+        if (quantidade <= 0) {
           return interaction.reply({
-            content: 'Recrutamento não encontrado com o ID fornecido.',
+            content: 'A quantidade deve ser maior que zero.',
             flags: MessageFlags.Ephemeral,
           });
         }
 
-        // Marca como rejeitado no banco
-        await updateRecruitStatus(recruitId, {
-          status: 'rejected',
-          rejectedBy: interaction.user.id,
-          rejectReason: 'Removido manualmente por administrador',
-        });
+        const result = await adjustRankingPoints(recruiter.id, -quantidade, interaction.user.id);
 
-        // Tenta atualizar a mensagem de aprovação se existir
-        try {
-          if (recruit.approvalChannelId && recruit.approvalMessageId) {
-            const channel = await interaction.client.channels.fetch(recruit.approvalChannelId);
-            if (channel && channel.isTextBased()) {
-              const msg = await channel.messages.fetch(recruit.approvalMessageId).catch(() => null);
-              if (msg) {
-                const now = new Date();
-                const originalEmbed = msg.embeds[0];
-                const embed = EmbedBuilder.from(originalEmbed)
-                  .setColor(0xe74c3c)
-                  .addFields(
-                    {
-                      name: 'Status',
-                      value: '❌ Removido manualmente',
-                    },
-                    {
-                      name: 'Removido por',
-                      value: `<@${interaction.user.id}> em ${formatDateBr(now)}`,
-                    },
-                    {
-                      name: 'Motivo',
-                      value: 'Removido manualmente por administrador',
-                    },
-                  )
-                  .setTimestamp(now);
-
-                const disabledRow = new ActionRowBuilder().addComponents(
-                  new ButtonBuilder()
-                    .setCustomId(`approve_recruit:${recruitId}`)
-                    .setLabel('Aprovado')
-                    .setStyle(ButtonStyle.Success)
-                    .setDisabled(true),
-                  new ButtonBuilder()
-                    .setCustomId(`reject_recruit:${recruitId}`)
-                    .setLabel('Reprovado')
-                    .setStyle(ButtonStyle.Danger)
-                    .setDisabled(true),
-                );
-
-                await msg.edit({ embeds: [embed], components: [disabledRow] });
-              }
-            }
-          }
-        } catch (err) {
-          console.error('Erro ao atualizar mensagem de recrutamento removido:', err);
+        if (!result.success) {
+          return interaction.reply({
+            content: result.message || 'Erro ao remover pontos do ranking.',
+            flags: MessageFlags.Ephemeral,
+          });
         }
 
         await interaction.reply({
-          content: `Recrutamento **${recruitId}** removido com sucesso.`,
+          content: `${result.message}\nRecrutador: <@${recruiter.id}>\nQuantidade: **${quantidade}** ponto(s)`,
           flags: MessageFlags.Ephemeral,
         });
       }
