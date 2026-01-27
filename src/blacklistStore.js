@@ -212,6 +212,20 @@ async function getBlacklistById(id) {
   return rows[0] ? normalizeRow(rows[0]) : null;
 }
 
+async function getActiveBlacklistByPassport(passportId) {
+  if (!useDb || !pool) {
+    const all = readFileSafe();
+    return all.find((e) => e.passportId === passportId && !e.removed) || null;
+  }
+
+  await ensureTable();
+  const { rows } = await pool.query(
+    'SELECT * FROM blacklists WHERE passport_id = $1 AND removed = FALSE LIMIT 1',
+    [passportId],
+  );
+  return rows[0] ? normalizeRow(rows[0]) : null;
+}
+
 function normalizeRow(row) {
   if (!row) return null;
   return {
@@ -236,5 +250,6 @@ module.exports = {
   addBlacklistEntry,
   markBlacklistRemoved,
   getBlacklistById,
+  getActiveBlacklistByPassport,
 };
 
