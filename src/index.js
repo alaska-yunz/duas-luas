@@ -96,7 +96,7 @@ client.once('ready', () => {
         ],
       },
       {
-        name: 'painel_recrutamento',
+        name: 'inserir_painel_recrutamento',
         description: 'Envia um bloco com botão para solicitar set no Duas Luas.',
         dm_permission: false,
       },
@@ -246,7 +246,7 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.editReply({
           content: `Blacklist registrada para **${nome}** (ID Passaporte: ${passportId}).`,
         });
-      } else if (interaction.commandName === 'painel_recrutamento') {
+      } else if (interaction.commandName === 'inserir_painel_recrutamento') {
         const member = interaction.member;
         if (!memberHasRecruitManagerRole(member)) {
           return interaction.reply({
