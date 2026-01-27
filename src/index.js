@@ -1081,13 +1081,31 @@ client.on('interactionCreate', async (interaction) => {
         const primeiroFarm = interaction.fields.getTextInputValue('primeiro_farm');
         const primeiroDesmanche = interaction.fields.getTextInputValue('primeiro_desmanche');
 
-        const updated = await updateRecruitStatus(recruitId, {
-          status: 'approved',
-          approvedBy: interaction.user.id,
-          firstRace: primeiraCorrida,
-          firstFarm: primeiroFarm,
-          firstDismantle: primeiroDesmanche,
-        });
+        let updated;
+        try {
+          updated = await updateRecruitStatus(recruitId, {
+            status: 'approved',
+            approvedBy: interaction.user.id,
+            firstRace: primeiraCorrida,
+            firstFarm: primeiroFarm,
+            firstDismantle: primeiroDesmanche,
+          });
+
+          if (!updated) {
+            return interaction.reply({
+              content: 'Erro ao atualizar status do recrutamento no banco de dados.',
+              ephemeral: true,
+            });
+          }
+        } catch (err) {
+          console.error('Erro ao atualizar status do recrutamento:', err);
+          return interaction.reply({
+            content: 'Erro ao atualizar status do recrutamento. Verifique os logs.',
+            ephemeral: true,
+          });
+        }
+
+        // Atualiza cargos do membro (remove olheiro, adiciona membro)
 
         // Atualiza cargos do membro (remove olheiro, adiciona membro)
         try {
@@ -1123,40 +1141,55 @@ client.on('interactionCreate', async (interaction) => {
 
         // Atualiza mensagem de aprovação
         try {
-          const channel = await interaction.client.channels.fetch(updated.approvalChannelId);
-          if (channel && channel.isTextBased()) {
-            const msg = await channel.messages.fetch(updated.approvalMessageId).catch(() => null);
-            if (msg) {
-              const now = new Date();
-              const originalEmbed = msg.embeds[0];
-              const embed = EmbedBuilder.from(originalEmbed)
-                .setColor(0x2ecc71)
-                .addFields(
-                  {
-                    name: 'Status',
-                    value: '✅ Aprovado',
-                  },
-                  {
-                    name: 'Aprovado por',
-                    value: `<@${interaction.user.id}> em ${formatDateBr(now)}`,
-                  },
-                  {
-                    name: 'Primeira corrida',
-                    value: primeiraCorrida,
-                    inline: true,
-                  },
-                  {
-                    name: 'Primeiro farm',
-                    value: primeiroFarm,
-                    inline: true,
-                  },
-                  {
-                    name: 'Primeiro desmanche',
-                    value: primeiroDesmanche,
-                    inline: true,
-                  },
-                )
-                .setTimestamp(now);
+          const approvalChannelId = recruit.approvalChannelId || updated?.approvalChannelId;
+          const approvalMessageId = recruit.approvalMessageId || updated?.approvalMessageId;
+
+          if (approvalChannelId && approvalMessageId) {
+            const channel = await interaction.client.channels.fetch(approvalChannelId);
+            if (channel && channel.isTextBased()) {
+              const msg = await channel.messages.fetch(approvalMessageId).catch(() => null);
+              if (msg && msg.embeds && msg.embeds.length > 0) {
+                const now = new Date();
+                const originalEmbed = msg.embeds[0];
+                let embed;
+                try {
+                  embed = EmbedBuilder.from(originalEmbed);
+                } catch (embedErr) {
+                  console.error('Erro ao criar embed a partir do original:', embedErr);
+                  // Cria um novo embed se não conseguir usar o original
+                  embed = new EmbedBuilder()
+                    .setTitle('📝 Recrutamento')
+                    .setColor(0x2ecc71);
+                }
+                
+                embed
+                  .setColor(0x2ecc71)
+                  .addFields(
+                    {
+                      name: 'Status',
+                      value: '✅ Aprovado',
+                    },
+                    {
+                      name: 'Aprovado por',
+                      value: `<@${interaction.user.id}> em ${formatDateBr(now)}`,
+                    },
+                    {
+                      name: 'Primeira corrida',
+                      value: primeiraCorrida || 'Não informado',
+                      inline: true,
+                    },
+                    {
+                      name: 'Primeiro farm',
+                      value: primeiroFarm || 'Não informado',
+                      inline: true,
+                    },
+                    {
+                      name: 'Primeiro desmanche',
+                      value: primeiroDesmanche || 'Não informado',
+                      inline: true,
+                    },
+                  )
+                  .setTimestamp(now);
 
               const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
@@ -1294,11 +1327,16 @@ client.on('interactionCreate', async (interaction) => {
     }
   } catch (err) {
     console.error('Erro em interactionCreate:', err);
+    console.error('Stack trace:', err.stack);
+    console.error('Interaction type:', interaction.type);
+    console.error('Interaction customId:', interaction.customId || interaction.commandName);
     if (!interaction.replied && !interaction.deferred) {
       interaction.reply({
-        content: 'Ocorreu um erro ao processar a interação.',
+        content: 'Ocorreu um erro ao processar a interação. Verifique os logs do bot.',
         ephemeral: true,
-      }).catch(() => {});
+      }).catch((replyErr) => {
+        console.error('Erro ao enviar resposta de erro:', replyErr);
+      });
     }
   }
 });
