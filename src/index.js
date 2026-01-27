@@ -872,30 +872,58 @@ client.on('interactionCreate', async (interaction) => {
         // Atualiza o apelido (nickname) do membro para "Nome Sobrenome | Passaporte" e adiciona cargo de olheiro
         try {
           const guild = interaction.guild;
-          const guildMember = await guild.members.fetch(candidateId).catch(() => null);
-          if (guildMember) {
-            // Atualiza nickname
-            const newNickname = `${nomeCompleto} | ${passaporte}`;
-            // Limita o nickname a 32 caracteres (limite do Discord)
-            const truncatedNickname = newNickname.length > 32 ? newNickname.substring(0, 29) + '...' : newNickname;
-            await guildMember.setNickname(truncatedNickname).catch((err) => {
-              console.error('Erro ao atualizar nickname do membro:', err);
+          if (!guild) {
+            console.error('Guild não encontrada ao processar recrutamento');
+          } else {
+            const guildMember = await guild.members.fetch(candidateId).catch((err) => {
+              console.error(`Erro ao buscar membro ${candidateId}:`, err);
+              return null;
             });
-            console.log(`Nickname atualizado para ${guildMember.user.tag}: ${truncatedNickname}`);
 
-            // Adiciona cargo de olheiro
-            const olheiroRoleId = process.env.ROLE_OLHEIRO_ID;
-            if (olheiroRoleId) {
-              if (!guildMember.roles.cache.has(olheiroRoleId)) {
-                await guildMember.roles.add(olheiroRoleId);
-                console.log(`Cargo de olheiro adicionado para ${guildMember.user.tag}`);
-              }
+            if (!guildMember) {
+              console.error(`Membro ${candidateId} não encontrado no servidor`);
             } else {
-              console.warn('ROLE_OLHEIRO_ID não configurado no .env');
+
+          console.log(`Processando recrutamento para membro: ${guildMember.user.tag} (${candidateId})`);
+
+          // Atualiza nickname
+          const newNickname = `${nomeCompleto} | ${passaporte}`;
+          const truncatedNickname = newNickname.length > 32 ? newNickname.substring(0, 29) + '...' : newNickname;
+          
+          try {
+            await guildMember.setNickname(truncatedNickname);
+            console.log(`✓ Nickname atualizado para ${guildMember.user.tag}: ${truncatedNickname}`);
+          } catch (err) {
+            console.error('Erro ao atualizar nickname do membro:', err.message);
+          }
+
+          // Adiciona cargo de olheiro
+          const olheiroRoleId = process.env.ROLE_OLHEIRO_ID;
+          if (!olheiroRoleId) {
+            console.warn('⚠ ROLE_OLHEIRO_ID não configurado no .env');
+          } else {
+            try {
+              const role = await guild.roles.fetch(olheiroRoleId).catch(() => null);
+              if (!role) {
+                console.error(`❌ Cargo de olheiro não encontrado com ID: ${olheiroRoleId}`);
+              } else {
+                if (!guildMember.roles.cache.has(olheiroRoleId)) {
+                  await guildMember.roles.add(olheiroRoleId);
+                  console.log(`✓ Cargo de olheiro adicionado para ${guildMember.user.tag}`);
+                } else {
+                  console.log(`ℹ ${guildMember.user.tag} já possui o cargo de olheiro`);
+                }
+              }
+            } catch (err) {
+              console.error('Erro ao adicionar cargo de olheiro:', err.message);
+              console.error('Stack:', err.stack);
+            }
+          }
             }
           }
         } catch (err) {
-          console.error('Erro ao atualizar nickname/cargo do membro:', err);
+          console.error('Erro geral ao atualizar nickname/cargo do membro:', err);
+          console.error('Stack:', err.stack);
         }
 
         const approvalChannelId = process.env.RECRUIT_APPROVAL_CHANNEL_ID;
