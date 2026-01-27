@@ -82,7 +82,7 @@ async function getAllBlacklists() {
 
   await ensureTable();
   const { rows } = await pool.query('SELECT * FROM blacklists ORDER BY created_at DESC');
-  return rows;
+  return rows.map(normalizeRow);
 }
 
 async function addBlacklistEntry({
@@ -146,21 +146,21 @@ async function addBlacklistEntry({
     ],
   );
 
-  return {
+  return normalizeRow({
     id,
-    passportId,
+    passport_id: passportId,
     nome,
     motivo,
-    authorId,
-    guildId,
-    channelId,
-    messageId,
-    createdAt: createdAt.toISOString(),
+    author_id: authorId,
+    guild_id: guildId,
+    channel_id: channelId,
+    message_id: messageId,
+    created_at: createdAt.toISOString(),
     removed: false,
-    removedBy: null,
-    removedAt: null,
-    removeReason: null,
-  };
+    removed_by: null,
+    removed_at: null,
+    remove_reason: null,
+  });
 }
 
 async function markBlacklistRemoved(id, { removedBy, reason }) {
@@ -198,7 +198,7 @@ async function markBlacklistRemoved(id, { removedBy, reason }) {
   if (rowCount === 0) return null;
 
   const { rows } = await pool.query('SELECT * FROM blacklists WHERE id = $1', [id]);
-  return rows[0] || null;
+  return rows[0] ? normalizeRow(rows[0]) : null;
 }
 
 async function getBlacklistById(id) {
@@ -209,7 +209,26 @@ async function getBlacklistById(id) {
 
   await ensureTable();
   const { rows } = await pool.query('SELECT * FROM blacklists WHERE id = $1', [id]);
-  return rows[0] || null;
+  return rows[0] ? normalizeRow(rows[0]) : null;
+}
+
+function normalizeRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    passportId: row.passport_id,
+    nome: row.nome,
+    motivo: row.motivo,
+    authorId: row.author_id,
+    guildId: row.guild_id,
+    channelId: row.channel_id,
+    messageId: row.message_id,
+    createdAt: row.created_at,
+    removed: row.removed,
+    removedBy: row.removed_by,
+    removedAt: row.removed_at,
+    removeReason: row.remove_reason,
+  };
 }
 
 module.exports = {
