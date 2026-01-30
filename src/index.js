@@ -27,6 +27,7 @@ const {
   getRecruitRanking,
   markKitDelivered,
   adjustRankingPoints,
+  clearRecruitRanking,
 } = require('./recruitStore');
 
 const client = new Client({
@@ -144,6 +145,11 @@ client.once('ready', async () => {
           dm_permission: false,
         },
         {
+          name: 'limpar_ranking_recrutamento',
+          description: 'Limpa o ranking de recrutamento marcando todos os aprovados como rejeitados (apenas para cargos autorizados).',
+          dm_permission: false,
+        },
+        {
           name: 'adicionar_recrutamento',
           description: 'Adiciona pontos ao ranking de recrutamento (apenas para cargos autorizados).',
           dm_permission: false,
@@ -231,6 +237,11 @@ client.once('ready', async () => {
       {
         name: 'ranking_recrutamento',
         description: 'Mostra o ranking de recrutamento dos membros.',
+        dm_permission: false,
+      },
+      {
+        name: 'limpar_ranking_recrutamento',
+        description: 'Limpa o ranking de recrutamento marcando todos os aprovados como rejeitados (apenas para cargos autorizados).',
         dm_permission: false,
       },
       {
@@ -464,6 +475,28 @@ client.on('interactionCreate', async (interaction) => {
           .setColor(0xf1c40f);
 
         await interaction.reply({ embeds: [embed] });
+      } else if (interaction.commandName === 'limpar_ranking_recrutamento') {
+        const member = interaction.member;
+        if (!memberHasAllowedRole(member)) {
+          return interaction.reply({
+            content: 'Você não tem permissão para limpar o ranking de recrutamento.',
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        const result = await clearRecruitRanking(interaction.user.id);
+
+        if (!result.success) {
+          return interaction.reply({
+            content: result.message || 'Erro ao limpar o ranking de recrutamento.',
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        await interaction.reply({
+          content: `✅ Ranking de recrutamento limpo com sucesso!\n${result.message}\nExecutado por: <@${interaction.user.id}>`,
+          flags: MessageFlags.Ephemeral,
+        });
       } else if (interaction.commandName === 'adicionar_recrutamento') {
         const member = interaction.member;
         if (!memberHasAllowedRole(member)) {
@@ -1042,7 +1075,7 @@ client.on('interactionCreate', async (interaction) => {
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
             .setCustomId(`approve_recruit:${recruitId}`)
-            .setLabel('Aprovar recrutamento')
+            .setLabel('Promover para membro')
             .setStyle(ButtonStyle.Success),
           new ButtonBuilder()
             .setCustomId(`reject_recruit:${recruitId}`)
@@ -1067,6 +1100,37 @@ client.on('interactionCreate', async (interaction) => {
           approvalChannelId: approvalChannel.id,
           approvalMessageId: approvalMessage.id,
         });
+
+        // Mensagem de boas-vindas (enviada quando o set é solicitado)
+        try {
+          const welcomeChannelId = process.env.WELCOME_CHANNEL_ID;
+          if (welcomeChannelId) {
+            const welcomeChannel = await interaction.client.channels.fetch(welcomeChannelId);
+            if (welcomeChannel && welcomeChannel.isTextBased()) {
+              const user = await interaction.client.users.fetch(candidateId);
+              const avatarUrl = user.displayAvatarURL({ size: 256 });
+
+              const welcomeEmbed = new EmbedBuilder()
+                .setTitle('Bem vindo(a) ao Duas Luas!')
+                .setThumbnail(avatarUrl)
+                .setColor(0xe91e63);
+
+              console.log(`Enviando mensagem de boas-vindas para ${user.tag} (${candidateId})`);
+              const welcomeMessage = await welcomeChannel.send({
+                content: `<@${candidateId}> seja bem vindo(a) ao Duas Luas!`,
+                embeds: [welcomeEmbed],
+              });
+
+              await welcomeMessage.react('❤️').catch(() => {});
+              console.log(`✓ Mensagem de boas-vindas enviada com sucesso para ${user.tag}`);
+            }
+          } else {
+            console.warn('WELCOME_CHANNEL_ID não configurado');
+          }
+        } catch (err) {
+          console.error('Erro ao enviar mensagem de boas-vindas:', err);
+          console.error('Stack:', err.stack);
+        }
 
         await interaction.reply({
           content: 'Seu pedido de set foi enviado para aprovação.',
@@ -1294,37 +1358,6 @@ client.on('interactionCreate', async (interaction) => {
           console.error('Erro ao atualizar mensagem de aprovação de recrutamento:', err);
         }
 
-        // Mensagem de boas-vindas (apenas se não foi aprovado antes)
-        try {
-          const welcomeChannelId = process.env.WELCOME_CHANNEL_ID;
-          if (welcomeChannelId) {
-            const welcomeChannel = await interaction.client.channels.fetch(welcomeChannelId);
-            if (welcomeChannel && welcomeChannel.isTextBased()) {
-              const user = await interaction.client.users.fetch(recruit.candidateId);
-              const avatarUrl = user.displayAvatarURL({ size: 256 });
-
-              const welcomeEmbed = new EmbedBuilder()
-                .setTitle('Bem vindo(a) ao Duas Luas!')
-                .setThumbnail(avatarUrl)
-                .setColor(0xe91e63);
-
-              console.log(`Enviando mensagem de boas-vindas para ${user.tag} (${recruit.candidateId})`);
-              const welcomeMessage = await welcomeChannel.send({
-                content: `<@${recruit.candidateId}> seja bem vindo(a) ao Duas Luas!`,
-                embeds: [welcomeEmbed],
-              });
-
-              await welcomeMessage.react('❤️').catch(() => {});
-              console.log(`✓ Mensagem de boas-vindas enviada com sucesso para ${user.tag}`);
-            }
-          } else {
-            console.warn('WELCOME_CHANNEL_ID não configurado');
-          }
-        } catch (err) {
-          console.error('Erro ao enviar mensagem de boas-vindas:', err);
-          console.error('Stack:', err.stack);
-        }
-
         await safeReply(interaction, {
           content: 'Recrutamento aprovado com sucesso.',
           flags: MessageFlags.Ephemeral,
@@ -1355,6 +1388,19 @@ client.on('interactionCreate', async (interaction) => {
           rejectedBy: interaction.user.id,
           rejectReason: motivo,
         });
+
+        // Remove pontos do ranking do recrutador quando recrutamento é recusado
+        try {
+          const removeResult = await adjustRankingPoints(recruit.recruiterId, -1, interaction.user.id);
+          if (removeResult.success) {
+            console.log(`✓ Removido 1 ponto do ranking do recrutador ${recruit.recruiterId} devido à reprovação`);
+          } else {
+            console.warn(`⚠ Não foi possível remover pontos do ranking: ${removeResult.message}`);
+          }
+        } catch (err) {
+          console.error('Erro ao remover pontos do ranking após reprovação:', err);
+          // Não falha o processo se a remoção de pontos falhar
+        }
 
         // Atualiza mensagem de aprovação
         try {

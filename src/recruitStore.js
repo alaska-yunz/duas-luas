@@ -475,6 +475,48 @@ async function adjustRankingPoints(recruiterId, quantity, adjustedBy) {
   return { success: true, message: `${isAdding ? 'Adicionados' : 'Removidos'} ${absQuantity} ponto(s) do ranking` };
 }
 
+async function clearRecruitRanking(clearedBy) {
+  // Marca todos os recrutamentos aprovados como rejeitados
+  const now = new Date().toISOString();
+  const rejectReason = `Ranking limpo por ${clearedBy}`;
+
+  if (!useDb || !pool) {
+    // Modo arquivo
+    const all = readFileSafe();
+    let count = 0;
+    all.forEach((recruit) => {
+      if (recruit.status === 'approved') {
+        recruit.status = 'rejected';
+        recruit.rejectedBy = clearedBy;
+        recruit.rejectedAt = now;
+        recruit.rejectReason = rejectReason;
+        count++;
+      }
+    });
+    writeFileSafe(all);
+    return { success: true, count, message: `${count} recrutamento(s) marcado(s) como rejeitado(s)` };
+  }
+
+  await ensureTable();
+  const result = await pool.query(
+    `
+      UPDATE recruits
+      SET status = 'rejected',
+          rejected_by = $1,
+          rejected_at = $2,
+          reject_reason = $3
+      WHERE status = 'approved'
+    `,
+    [clearedBy, now, rejectReason],
+  );
+
+  return {
+    success: true,
+    count: result.rowCount,
+    message: `${result.rowCount} recrutamento(s) marcado(s) como rejeitado(s)`,
+  };
+}
+
 module.exports = {
   generateId,
   addRecruit,
@@ -483,5 +525,6 @@ module.exports = {
   getRecruitRanking,
   markKitDelivered,
   adjustRankingPoints,
+  clearRecruitRanking,
 };
 
