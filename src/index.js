@@ -146,7 +146,7 @@ client.once('ready', async () => {
         },
         {
           name: 'limpar_ranking_recrutamento',
-          description: 'Limpa o ranking de recrutamento marcando todos os aprovados como rejeitados (apenas para cargos autorizados).',
+          description: 'Limpa o ranking marcando todos os aprovados como rejeitados.',
           dm_permission: false,
         },
         {
